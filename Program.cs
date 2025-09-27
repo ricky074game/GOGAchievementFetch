@@ -1,6 +1,7 @@
 ﻿using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace GOGAchievementFetch
 {
@@ -40,6 +41,13 @@ namespace GOGAchievementFetch
 
                 foreach (var game in games)
                 {
+                    var clientId = await GetClientIdAsync(game.Id);
+                    if (string.IsNullOrEmpty(clientId))
+                    {
+                        Console.WriteLine($"Could not find a client ID for {game.Title} ({game.Id}). Skipping.");
+                        continue;
+                    }
+
                     var achievementsResponse = await GetAchievementsAsync(game.Id.ToString(), userId);
                     if (achievementsResponse?.Items != null && achievementsResponse.Items.Count > 0)
                     {
@@ -67,10 +75,10 @@ namespace GOGAchievementFetch
 
                         var options = new JsonSerializerOptions { WriteIndented = true };
                         var json = JsonSerializer.Serialize(gameData, options);
-                        var filePath = Path.Combine(achievementsDir, $"{game.Id}.json");
+                        var filePath = Path.Combine(achievementsDir, $"{clientId}.json");
                         await File.WriteAllTextAsync(filePath, json);
 
-                        Console.WriteLine($"Saved achievements for {game.Title} ({game.Id})");
+                        Console.WriteLine($"Saved achievements for {game.Title} ({game.Id}) to file {clientId}.json");
                     }
                     else
                     {
@@ -88,6 +96,45 @@ namespace GOGAchievementFetch
             catch (Exception e)
             {
                 Console.WriteLine($"An unexpected error occurred: {e.Message}");
+            }
+        }
+
+        private static async Task<string?> GetClientIdAsync(int gameId)
+        {
+            try
+            {
+                var buildsResponse = await HttpClient.GetAsync($"https://www.gogdb.org/data/products/{gameId}/builds");
+                if (!buildsResponse.IsSuccessStatusCode) return null;
+
+                var htmlContent = await buildsResponse.Content.ReadAsStringAsync();
+
+                var buildIds = new List<long>();
+                var regex = new Regex(@"href=""(\d+)\.json""");
+                var matches = regex.Matches(htmlContent);
+
+                foreach (Match match in matches)
+                {
+                    if (long.TryParse(match.Groups[1].Value, out var buildId))
+                    {
+                        buildIds.Add(buildId);
+                    }
+                }
+
+                if (buildIds.Count == 0) return null;
+
+                var highestBuildId = buildIds.Max();
+
+                var buildDetailsResponse = await HttpClient.GetAsync($"https://www.gogdb.org/data/products/{gameId}/builds/{highestBuildId}.json");
+                if (!buildDetailsResponse.IsSuccessStatusCode) return null;
+
+                var buildDetailsContent = await buildDetailsResponse.Content.ReadAsStringAsync();
+                var buildDetails = JsonSerializer.Deserialize<GogBuildDetailsResponse>(buildDetailsContent);
+
+                return buildDetails?.ClientId;
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 
@@ -160,14 +207,19 @@ namespace GOGAchievementFetch
                     return null;
                 }
                 content = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<GogAchievementsResponse>(content);
+
+                var options = new JsonSerializerOptions
+                {
+                    Converters = { new NullableDateTimeConverter() },
+                    PropertyNameCaseInsensitive = true
+                };
+
+                return JsonSerializer.Deserialize<GogAchievementsResponse>(content, options);
             }
             catch (JsonException jsonEx)
             {
                 Console.WriteLine($"Error deserializing achievements for Product ID: {productId}");
                 Console.WriteLine($"Error Message: {jsonEx.Message}");
-                Console.WriteLine("Raw JSON response that caused the error:");
-                Console.WriteLine(content ?? "Response content was null or could not be read.");
                 return null;
             }
             catch (HttpRequestException)
@@ -186,8 +238,15 @@ namespace GOGAchievementFetch
     public class GogGameDetailsResponse
     {
         [JsonPropertyName("title")]
-        public string Title { get; } = "";
+        public string Title { get; set; } = "";
     }
+
+    public class GogBuildDetailsResponse
+    {
+        [JsonPropertyName("clientId")]
+        public string? ClientId { get; set; }
+    }
+
 
     public class GogGame
     {
