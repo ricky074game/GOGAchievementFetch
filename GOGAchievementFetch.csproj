@@ -8,13 +8,13 @@
 		<RuntimeIdentifiers>linux-arm64;linux-x64;osx-x64;osx-arm64;win-arm64;win-x64;win-x86</RuntimeIdentifiers>
 		<SelfContained>true</SelfContained>
 		<PublishSingleFile>true</PublishSingleFile>
-		<PublishTrimmed>true</PublishTrimmed>
+		<JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Compile Remove="output\**" />
-	  <EmbeddedResource Remove="output\**" />
-	  <None Remove="output\**" />
+		<Compile Remove="output\**" />
+		<EmbeddedResource Remove="output\**" />
+		<None Remove="output\**" />
 	</ItemGroup>
 
 </Project>
